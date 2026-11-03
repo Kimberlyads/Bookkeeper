@@ -38,16 +38,23 @@ Este é o plano de desenvolvimento do Bookkeeper. Vamos avançar por etapas e va
 - [ ] Filtros por gênero e região (prioridade: Amazon Brasil)
 - [ ] Evitar duplicatas e incluir links confiáveis
 
-## 8. Versão pessoal estável
+## 8. Hospedagem contínua (sempre ligado)
+- [ ] Escolher uma hospedagem em nuvem adequada
+- [ ] Configurar o bot para iniciar automaticamente e funcionar sem o computador ligado
+- [ ] Configurar reinicialização em caso de falha e monitoramento por logs
+- [ ] Garantir persistência e backups do banco de dados
+- [ ] Testar a operação contínua antes de considerar a etapa concluída
+
+## 9. Versão pessoal estável
 - [ ] Testes finais, documentação e backups
 - [ ] Revisar segurança e tratamento de erros
 
-## 9. Onboarding multiusuário
+## 10. Onboarding multiusuário
 - [ ] Bibliotecas isoladas e privacidade
 - [ ] Importar biblioteca ou começar do zero
 - [ ] Testar com usuários beta
 
-## 10. Possibilidades futuras
+## 11. Possibilidades futuras
 - [ ] Aplicativo móvel e API
 - [ ] Estante visual e leitura de ISBN pela câmera
 - [ ] Sincronização entre plataformas
