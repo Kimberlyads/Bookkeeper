@@ -2,8 +2,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-CAMINHO_BANCO = Path(__file__).resolve().parent / "biblioteca.db"
-CAMINHO_JSON = Path(__file__).resolve().parent / "kindlogger-export.json"
+CAMINHO_BANCO = Path(__file__).resolve().parent.parent / "biblioteca.db"
+CAMINHO_JSON = Path(__file__).resolve().parent.parent / "kindlogger-export.json"
 
 
 def conectar():

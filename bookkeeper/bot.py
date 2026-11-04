@@ -9,7 +9,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from database import (
+from .database import (
     adicionar_livro,
     contar_livros,
     criar_tabela,
