@@ -2,9 +2,11 @@
   console.log("Bookkeeper: main.js foi carregado");
 
   const originalFetch = window.fetch;
+  console.log("Bookkeeper: observando chamadas fetch");
   
   window.fetch = async function (...args) {
     const response = await originalFetch.apply(this, args);
+    console.log("Bookkeeper: chamada detectada", args[0]);
 
     try {
       const url =
