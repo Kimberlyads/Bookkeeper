@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Bookkeeper - Importador Kindle",
+  "version": "0.2.0",
+  "description": "Importa a biblioteca Kindle para o Bookkeeper.",
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://read.amazon.com/*",
+    "https://read.amazon.com.br/*",
+    "https://ler.amazon.com.br/*",
+    "https://www.amazon.com.br/hz/mycd/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Bookkeeper - Kindle"
+  },
+  "content_scripts": [
+  {
+    "matches": ["https://www.amazon.com.br/hz/mycd/*"],
+    "js": ["main.js"],
+    "run_at": "document_start",
+    "world": "MAIN"
+  },
+  {
+    "matches": ["https://www.amazon.com.br/hz/mycd/*"],
+    "js": ["content.js"],
+    "run_at": "document_start"
+  }
+]
+}
