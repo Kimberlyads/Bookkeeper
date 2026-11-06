@@ -1,32 +1,39 @@
 {
   "manifest_version": 3,
   "name": "Bookkeeper - Importador Kindle",
-  "version": "0.2.0",
-  "description": "Importa a biblioteca Kindle para o Bookkeeper.",
-  "permissions": [
-    "activeTab"
-  ],
+  "version": "0.4.0",
+  "description": "Importa a biblioteca Kindle e envia ao Bookkeeper via código seguro.",
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://read.amazon.com/*",
     "https://read.amazon.com.br/*",
     "https://ler.amazon.com.br/*",
-    "https://www.amazon.com.br/hz/mycd/*"
+    "https://www.amazon.com.br/hz/mycd/*",
+    "https://www.amazon.com/hz/mycd/*",
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
   ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Bookkeeper - Kindle"
   },
   "content_scripts": [
-  {
-    "matches": ["https://www.amazon.com.br/hz/mycd/*"],
-    "js": ["main.js"],
-    "run_at": "document_start",
-    "world": "MAIN"
-  },
-  {
-    "matches": ["https://www.amazon.com.br/hz/mycd/*"],
-    "js": ["content.js"],
-    "run_at": "document_start"
-  }
-]
+    {
+      "matches": [
+        "https://www.amazon.com.br/hz/mycd/*",
+        "https://www.amazon.com/hz/mycd/*"
+      ],
+      "js": ["main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.amazon.com.br/hz/mycd/*",
+        "https://www.amazon.com/hz/mycd/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
 }
