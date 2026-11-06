@@ -22,6 +22,7 @@ AMAZON_LIBRARY_URL = os.getenv(
 )
 logger = logging.getLogger(__name__)
 _application: Application | None = None
+_bot_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _user_id(update: Update) -> int:
@@ -241,13 +242,17 @@ def _on_import_complete(telegram_user_id: int, resultado: dict):
         except Exception:
             logger.exception("Falha ao notificar usuário %s", telegram_user_id)
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(_send(), loop)
-        else:
-            loop.run_until_complete(_send())
+        if _bot_loop is None or not _bot_loop.is_running():
+            logger.error("Loop do Telegram indisponível para notificação de importação")
+            return
+        asyncio.run_coroutine_threadsafe(_send(), _bot_loop)
     except Exception:
         logger.exception("Não foi possível agendar notificação de importação")
+
+
+async def _registrar_loop_do_bot(app: Application):
+    global _bot_loop
+    _bot_loop = asyncio.get_running_loop()
 
 
 def main():
@@ -261,7 +266,7 @@ def main():
         level=logging.INFO,
     )
     criar_tabela()
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(_registrar_loop_do_bot).build()
     _application = app
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
