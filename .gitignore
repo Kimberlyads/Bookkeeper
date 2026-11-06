@@ -9,6 +9,7 @@
 *.sqlite3
 kindlogger-*.json
 amazon-*.json
+kindle-library-*.json
 
 # Python
 __pycache__/
