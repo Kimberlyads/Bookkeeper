@@ -1,132 +1,144 @@
 (() => {
-  console.log("Bookkeeper: main.js foi carregado");
+  "use strict";
 
   const TARGET_URL = "/hz/mycd/digital-console/ajax";
   const TARGET_OPERATION = "GetContentOwnershipData";
+  console.log("Bookkeeper: main.js carregado (MAIN world)");
+  let requestTemplate = null;
+
+  function toParams(body) {
+    if (typeof body === "string") return new URLSearchParams(body);
+    if (body instanceof URLSearchParams) return new URLSearchParams(body.toString());
+    return null;
+  }
+
+  function captureRequest(body) {
+    const params = toParams(body);
+    if (!params || params.get("activity") !== TARGET_OPERATION) return;
+    const activityInput = params.get("activityInput");
+    if (!activityInput) return;
+    try {
+      JSON.parse(activityInput);
+      requestTemplate = params;
+      console.log("Bookkeeper: modelo de requisição Kindle capturado.");
+    } catch {
+      console.warn("Bookkeeper: activityInput inválido.");
+    }
+  }
 
   function isLibraryRequest(body) {
-    if (typeof body === "string") {
-      return body.includes(TARGET_OPERATION);
-    }
-
-    if (body instanceof URLSearchParams) {
-      return body.toString().includes(TARGET_OPERATION);
-    }
-
-    return false;
+    return toParams(body)?.get("activity") === TARGET_OPERATION;
   }
 
-  function enviarResposta(data, requestBody = "") {
+  function notifyPassive(data, requestBody = "") {
     if (!data) return;
-
-    let responseText = "";
-    try {
-      responseText = JSON.stringify(data);
-    } catch (_) {
-      return;
-    }
-
-    // A operação pode aparecer no corpo da requisição ou na resposta.
-    if (
-      !isLibraryRequest(requestBody) &&
-      !responseText.includes(TARGET_OPERATION)
-    ) {
-      return;
-    }
-
-    console.log(
-      "Bookkeeper: resposta com GetContentOwnershipData detectada"
-    );
-
-    window.postMessage(
-      {
-        source: "BOOKKEEPER_KINLE",
-        type: "KINDLE_LIBRARY_RESPONSE",
-        data,
-      },
-      window.location.origin
-    );
+    if (!isLibraryRequest(requestBody) &&
+        !JSON.stringify(data).includes(TARGET_OPERATION)) return;
+    window.postMessage({
+      source: "BOOKKEEPER_KINLE",
+      type: "KINDLE_LIBRARY_RESPONSE",
+      data
+    }, window.location.origin);
   }
 
-  // Observa chamadas feitas com fetch sem consumir a resposta original.
   const originalFetch = window.fetch;
-
   window.fetch = async function (...args) {
+    const requestUrl = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
+    const requestBody = args[1]?.body || "";
+    if (requestUrl.includes(TARGET_URL)) captureRequest(requestBody);
     const response = await originalFetch.apply(this, args);
-
-    const requestUrl =
-      typeof args[0] === "string"
-        ? args[0]
-        : args[0]?.url || "";
-
     if (requestUrl.includes(TARGET_URL)) {
-      const requestBody = args[1]?.body || "";
-
-      console.log("Bookkeeper: fetch Kindle detectado");
-
       try {
-        response
-          .clone()
-          .json()
-          .then((data) => enviarResposta(data, requestBody))
+        response.clone().json()
+          .then(data => notifyPassive(data, requestBody))
           .catch(() => {});
-      } catch (error) {
-        console.error(
-          "Bookkeeper: erro ao observar resposta fetch",
-          error
-        );
-      }
+      } catch (_) {}
     }
-
     return response;
   };
 
-  // Observa chamadas feitas com XMLHttpRequest.
   const originalXhrOpen = XMLHttpRequest.prototype.open;
   const originalXhrSend = XMLHttpRequest.prototype.send;
-
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     this.bookkeeperUrl = String(url);
-
-    if (this.bookkeeperUrl.includes(TARGET_URL)) {
-      console.log("Bookkeeper: XHR Kindle detectado");
-    }
-
     return originalXhrOpen.call(this, method, url, ...rest);
   };
-
   XMLHttpRequest.prototype.send = function (...args) {
     const requestBody = args[0] || "";
-
     if (this.bookkeeperUrl?.includes(TARGET_URL)) {
+      captureRequest(requestBody);
       this.addEventListener("load", function () {
         try {
           let data;
-
-          if (this.responseType === "json") {
-            data = this.response;
-          } else if (
-            this.responseType === "" ||
-            this.responseType === "text"
-          ) {
+          if (this.responseType === "json") data = this.response;
+          else if (this.responseType === "" || this.responseType === "text") {
             if (!this.responseText) return;
             data = JSON.parse(this.responseText);
-          } else {
-            return;
-          }
-
-          enviarResposta(data, requestBody);
-        } catch (error) {
-          console.error(
-            "Bookkeeper: erro ao interpretar resposta XHR",
-            error
-          );
-        }
+          } else return;
+          notifyPassive(data, requestBody);
+        } catch (_) {}
       });
     }
-
     return originalXhrSend.apply(this, args);
   };
 
-  console.log("Bookkeeper: observadores fetch e XHR instalados");
+  function buildPayload(startIndex, batchSize, totalContentCount) {
+    if (!requestTemplate) {
+      throw new Error("A Amazon ainda não realizou uma requisição da biblioteca. Atualize a página Kindle e tente novamente.");
+    }
+    const params = new URLSearchParams(requestTemplate.toString());
+    const activityInput = JSON.parse(params.get("activityInput"));
+    if (!activityInput.fetchCriteria) {
+      throw new Error("Não foi possível localizar os critérios de paginação da Amazon.");
+    }
+    activityInput.fetchCriteria.startIndex = Number(startIndex) || 0;
+    activityInput.fetchCriteria.batchSize = Number(batchSize) || 25;
+    activityInput.fetchCriteria.totalContentCount =
+      totalContentCount != null ? Number(totalContentCount) : -1;
+    params.set("activityInput", JSON.stringify(activityInput));
+    return params.toString();
+  }
+
+  async function fetchOwnershipBatch({startIndex, batchSize, totalContentCount}) {
+    const body = buildPayload(startIndex, batchSize, totalContentCount);
+    const response = await originalFetch(TARGET_URL, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        Accept: "application/json, text/plain, */*"
+      },
+      body
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.errors || data?.error) {
+      throw new Error("A Amazon retornou um erro ao buscar esta página.");
+    }
+    return data;
+  }
+
+  window.addEventListener("message", async event => {
+    if (event.source !== window) return;
+    if (event.data?.source !== "BOOKKEEPER_CONTENT") return;
+    if (event.data.type !== "FETCH_KINDLE_BATCH") return;
+    const {requestId, startIndex, batchSize, totalContentCount} = event.data;
+    try {
+      const data = await fetchOwnershipBatch({startIndex, batchSize, totalContentCount});
+      window.postMessage({
+        source: "BOOKKEEPER_KINLE",
+        type: "KINDLE_BATCH_RESPONSE",
+        requestId,
+        data
+      }, window.location.origin);
+    } catch (error) {
+      window.postMessage({
+        source: "BOOKKEEPER_KINLE",
+        type: "KINDLE_BATCH_ERROR",
+        requestId,
+        error: error.message || String(error)
+      }, window.location.origin);
+    }
+  });
+  console.log("Bookkeeper: interceptores e bridge de batch prontos");
 })();
