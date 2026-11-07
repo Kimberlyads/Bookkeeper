@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -21,6 +22,48 @@ def banco_tmp(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "CAMINHO_BANCO", caminho)
     db.criar_tabela()
     return caminho
+
+
+
+def _porta_livre(host="127.0.0.1") -> int:
+    """Obtém uma porta TCP livre sem fixar números no código de teste."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        return int(sock.getsockname()[1])
+
+
+def _iniciar_api_temporaria(host="127.0.0.1"):
+    """Sobe a API em porta dinâmica e espera ``/health``.
+
+    Não usa portas fixas. Evita ``time.sleep`` arbitrário: faz poll em
+    ``/health`` até o servidor responder ou estourar o prazo.
+
+    Nota: ``criar_servidor(..., port=0)`` não serve aqui porque
+    ``port or DEFAULT`` trata 0 como falsy e cai em 8787.
+    Retorna ``(server, base_url, thread)``.
+    """
+    port = _porta_livre(host)
+    server = criar_servidor(host=host, port=port)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host_bound, bound_port = server.server_address
+    base_url = f"http://{host_bound}:{bound_port}"
+    deadline = time.monotonic() + 3.0
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"{base_url}/health", timeout=0.3) as resp:
+                if resp.status == 200:
+                    return server, base_url, thread
+        except Exception as exc:  # noqa: BLE001 — poll de readiness
+            last_error = exc
+            time.sleep(0.02)
+    try:
+        server.shutdown()
+        server.server_close()
+    except Exception:
+        pass
+    raise RuntimeError(f"API de teste não ficou pronta em tempo: {last_error}")
 
 
 def test_claim_sucesso_e_reuso_negado(banco_tmp):
@@ -125,14 +168,11 @@ def test_api_falha_nao_consome_codigo(banco_tmp, monkeypatch):
 
     monkeypatch.setattr("bookkeeper.api.importar_livros_kindle", falhar)
 
-    server = criar_servidor(host="127.0.0.1", port=18791)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    time.sleep(0.15)
+    server, base_url, _thread = _iniciar_api_temporaria()
     try:
         payload = json.dumps({"code": code, "books": [{"title": "X"}]}).encode()
         req = urllib.request.Request(
-            "http://127.0.0.1:18791/api/import",
+            f"{base_url}/api/import",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -147,15 +187,13 @@ def test_api_falha_nao_consome_codigo(banco_tmp, monkeypatch):
         assert claimed[0] == 20
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_api_sucesso_consome_codigo(banco_tmp):
     db.garantir_usuario(21, "u", "U")
     code, _ = db.criar_link_code(21)
-    server = criar_servidor(host="127.0.0.1", port=18792)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    time.sleep(0.15)
+    server, base_url, _thread = _iniciar_api_temporaria()
     try:
         payload = json.dumps(
             {
@@ -166,7 +204,7 @@ def test_api_sucesso_consome_codigo(banco_tmp):
             }
         ).encode()
         req = urllib.request.Request(
-            "http://127.0.0.1:18792/api/import",
+            f"{base_url}/api/import",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -179,6 +217,7 @@ def test_api_sucesso_consome_codigo(banco_tmp):
         assert len(db.listar_livros(21)) == 1
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_migracao_adiciona_claim_token(tmp_path, monkeypatch):

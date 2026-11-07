@@ -1,4 +1,17 @@
-"""Testes da Entrega 4: proteção contra injeção duplicada de content.js."""
+"""Testes da Entrega 4: proteção contra injeção duplicada de content.js.
+
+IMPORTANTE — natureza destes testes
+-----------------------------------
+São testes **estáticos / simulados** sobre o código-fonte e um modelo da
+guarda de inicialização. Eles NÃO abrem o Chrome, NÃO injetam content
+scripts de verdade e NÃO substituem validação manual no navegador.
+
+Validação manual pendente no Chrome:
+- Abrir o popup várias vezes na página Kindle sem progresso duplicado.
+- Importação completa com uma única sequência de progresso/conclusão.
+- Página aberta antes de carregar a extensão (contingência de reinjeção).
+- Mensagens IMPORT_COMPLETE / IMPORT_ERROR chegando uma vez ao popup.
+"""
 
 from __future__ import annotations
 

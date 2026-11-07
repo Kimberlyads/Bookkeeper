@@ -124,3 +124,44 @@ def test_mesmo_asin_usuarios_diferentes_ok(banco_tmp):
     assert r["adicionados"] == 1
     assert len(db.listar_livros(9)) == 1
     assert len(db.listar_livros(10)) == 1
+
+
+def test_existe_com_asin_reimport_sem_asin_permite_segunda_linha(banco_tmp):
+    """Documenta política conservadora (não é bug da suíte).
+
+    Já existe livro com ASIN. Nova importação do mesmo título/autor **sem** ASIN
+    não é considerada o mesmo registro (dedupe sem ASIN só olha linhas com
+    asin IS NULL). O comportamento atual **permite** uma segunda linha.
+
+    Não usamos match agressivo título+autor contra registros que já têm ASIN.
+    """
+    db.garantir_usuario(40, "u", "U")
+    r1 = db.importar_livros_kindle(
+        40,
+        [
+            {
+                "title": "Mesmo Titulo",
+                "authors": ["Autora Confiavel"],
+                "asin": "B00ASIN40",
+                "read": False,
+            }
+        ],
+    )
+    assert r1["adicionados"] == 1
+
+    r2 = db.importar_livros_kindle(
+        40,
+        [
+            {
+                "title": "Mesmo Titulo",
+                "authors": ["Autora Confiavel"],
+                # sem asin de propósito
+                "read": False,
+            }
+        ],
+    )
+    # Política atual: segunda inserção ocorre (duplicata possível).
+    assert r2["adicionados"] == 1
+    assert r2["ignorados"] == 0
+    livros = db.listar_livros(40)
+    assert len(livros) == 2
