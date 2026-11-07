@@ -6,7 +6,15 @@
    * Orquestra a paginação e fala com o popup via chrome.runtime.
    * As requisições HTTP reais ficam em main.js (MAIN world).
    * Não altera o fluxo de interceptação/CSRF da Amazon.
+   *
+   * Proteção contra injeção duplicada (manifest + scripting.executeScript):
+   * se este documento já inicializou o orquestrador, não registra listeners de novo.
    */
+  if (globalThis.__BOOKKEEPER_CONTENT_READY__) {
+    return;
+  }
+  globalThis.__BOOKKEEPER_CONTENT_READY__ = true;
+
   const BATCH_SIZE = 25;
   const MAX_RETRIES = 3;
   const BASE_DELAY_MS = 400;
@@ -159,19 +167,32 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.source !== "BOOKKEEPER" || message.type !== "START_IMPORT") return;
+    if (message?.source !== "BOOKKEEPER") return;
+
+    // Resposta leve para o popup saber se o content script já está ativo.
+    if (message.type === "PING") {
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (message.type !== "START_IMPORT") return;
+
     (async () => {
       try {
         const library = await importFullLibrary();
-        chrome.runtime.sendMessage({source: "BOOKKEEPER", type: "IMPORT_COMPLETE", library});
-        sendResponse({ok: true});
+        chrome.runtime.sendMessage({
+          source: "BOOKKEEPER",
+          type: "IMPORT_COMPLETE",
+          library,
+        });
+        sendResponse({ ok: true });
       } catch (error) {
         chrome.runtime.sendMessage({
           source: "BOOKKEEPER",
           type: "IMPORT_ERROR",
-          error: error.message || String(error)
+          error: error.message || String(error),
         });
-        sendResponse({ok: false, error: error.message});
+        sendResponse({ ok: false, error: error.message });
       }
     })();
     return true;

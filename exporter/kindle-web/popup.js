@@ -37,10 +37,33 @@ async function getActiveTab() {
   return tab;
 }
 
-async function ensureContentScript(tabId) {
+async function isContentScriptReady(tabId) {
   try {
-    await chrome.scripting.executeScript({target: {tabId}, files: ["content.js"]});
-  } catch (_) {}
+    const response = await chrome.tabs.sendMessage(tabId, {
+      source: "BOOKKEEPER",
+      type: "PING",
+    });
+    return Boolean(response && response.ok);
+  } catch (_) {
+    // content script ausente ou aba ainda sem o script
+    return false;
+  }
+}
+
+async function ensureContentScript(tabId) {
+  // O manifest já injeta content.js. Só reinjetamos se o PING falhar
+  // (ex.: página aberta antes de carregar a extensão).
+  if (await isContentScriptReady(tabId)) {
+    return;
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"],
+    });
+  } catch (_) {
+    // Pode falhar se a aba não permitir scripting; START_IMPORT tratará o erro.
+  }
 }
 
 async function getApiUrl() {

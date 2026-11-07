@@ -13,7 +13,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 from urllib.parse import urlparse
 
-from .database import consumir_link_code, criar_tabela, importar_livros_kindle
+from .database import (
+    claim_link_code,
+    criar_tabela,
+    importar_livros_kindle,
+    release_link_code,
+)
 
 logger = logging.getLogger(__name__)
 DEFAULT_HOST = "127.0.0.1"
@@ -80,8 +85,10 @@ class BookkeeperAPIHandler(BaseHTTPRequestHandler):
         if not isinstance(books, list):
             self._send_json(400, {"ok": False, "error": "missing_books"})
             return
-        telegram_user_id = consumir_link_code(code)
-        if telegram_user_id is None:
+        # Reserva atômica com claim_token: impede uso simultâneo e evita
+        # que um release antigo reative código já revogado por /conectar.
+        claimed = claim_link_code(code)
+        if claimed is None:
             self._send_json(
                 401,
                 {
@@ -94,10 +101,16 @@ class BookkeeperAPIHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        telegram_user_id, claim_token = claimed
         try:
             resultado = importar_livros_kindle(telegram_user_id, books)
         except Exception:
             logger.exception("Falha ao importar biblioteca")
+            # Só libera se o token ainda for o desta reserva.
+            try:
+                release_link_code(code, claim_token)
+            except Exception:
+                logger.exception("Falha ao liberar código após erro de importação")
             self._send_json(500, {"ok": False, "error": "import_failed"})
             return
         callback = type(self).on_import_complete

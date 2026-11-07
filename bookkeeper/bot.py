@@ -15,7 +15,7 @@ from .database import (
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 LIVROS_POR_PAGINA = 20
-STATUS_VALIDOS = {"Pendente", "Lendo", "Lido"}
+STATUS_VALIDOS = {"Pendente", "Lendo", "Lido", "Desconhecido"}
 AMAZON_LIBRARY_URL = os.getenv(
     "AMAZON_LIBRARY_URL",
     "https://www.amazon.com.br/hz/mycd/digital-console/contentlist/booksAll/dateDsc/",
@@ -48,7 +48,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status Título; Status — atualizar o status\n"
         "/estatisticas — ver suas estatísticas\n"
         "/filtrar Status ou Coleção — filtrar a biblioteca\n\n"
-        "Status: Pendente, Lendo ou Lido.\n\n"
+        "Status: Pendente, Lendo, Lido ou Desconhecido.\n\n"
         "A senha da Amazon nunca é pedida. O login fica só no site oficial."
     )
 
@@ -101,7 +101,7 @@ async def adicionar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         status_livro = "Lido" if colecao.casefold() == "lidos" else "Pendente"
     if status_livro not in STATUS_VALIDOS:
-        await update.effective_message.reply_text("Status inválido. Use Pendente, Lendo ou Lido.")
+        await update.effective_message.reply_text("Status inválido. Use Pendente, Lendo, Lido ou Desconhecido.")
         return
     try:
         adicionar_livro(user_id, titulo, autor, paginas, colecao, status_livro)
@@ -173,13 +173,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(partes) != 2 or not all(partes):
         await update.effective_message.reply_text(
             "Use assim: /status Título do livro; Status\n"
-            "Status disponíveis: Pendente, Lendo ou Lido."
+            "Status disponíveis: Pendente, Lendo, Lido ou Desconhecido."
         )
         return
     titulo, novo_status = partes
     novo_status = novo_status.capitalize()
     if novo_status not in STATUS_VALIDOS:
-        await update.effective_message.reply_text("Status inválido. Use Pendente, Lendo ou Lido.")
+        await update.effective_message.reply_text("Status inválido. Use Pendente, Lendo, Lido ou Desconhecido.")
         return
     if atualizar_status(user_id, titulo, novo_status) == 0:
         await update.effective_message.reply_text(f"Não encontrei o livro '{titulo}' na sua biblioteca.")
@@ -191,15 +191,18 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contagens = contar_livros(_user_id(update))
-    quantidades = {"Pendente": 0, "Lendo": 0, "Lido": 0}
+    quantidades = {"Pendente": 0, "Lendo": 0, "Lido": 0, "Desconhecido": 0}
     for status_livro, quantidade in contagens:
         if status_livro in quantidades:
             quantidades[status_livro] = quantidade
     total = sum(quantidades.values())
     await update.effective_message.reply_text(
         "📚 Estatísticas da sua biblioteca\n\n"
-        f"📖 Total de livros: {total}\n⏳ Pendentes: {quantidades['Pendente']}\n"
-        f"📕 Lendo: {quantidades['Lendo']}\n✅ Lidos: {quantidades['Lido']}"
+        f"📖 Total de livros: {total}\n"
+        f"⏳ Pendentes: {quantidades['Pendente']}\n"
+        f"📕 Lendo: {quantidades['Lendo']}\n"
+        f"✅ Lidos: {quantidades['Lido']}\n"
+        f"❔ Desconhecidos: {quantidades['Desconhecido']}"
     )
 
 
