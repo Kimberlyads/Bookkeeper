@@ -158,3 +158,21 @@ def test_isolamento_entre_usuarios(tmp_path, monkeypatch):
     assert livro(9, "SHARED1")["product_image"] == "u9.jpg"
     assert livro(10, "SHARED1")["product_image"] == "u10.jpg"
     assert len(db.listar_livros(9)) == len(db.listar_livros(10)) == 1
+
+
+def test_content_identifier_nao_e_unico(tmp_path, monkeypatch):
+    banco_tmp(tmp_path, monkeypatch)
+    for asin in ("CID-DUP-A", "CID-DUP-B"):
+        db.importar_livros_kindle(11, [{
+            "title": asin, "asin": asin, "contentIdentifier": "MESMO-CID",
+        }])
+    with db.conectar() as c:
+        total = c.execute(
+            "SELECT COUNT(*) FROM livros WHERE telegram_user_id=11 AND content_identifier='MESMO-CID'"
+        ).fetchone()[0]
+        indices = c.execute("PRAGMA index_list(livros)").fetchall()
+    assert total == 2
+    assert not any(
+        row["unique"] and "content_identifier" in row["name"]
+        for row in indices
+    )
