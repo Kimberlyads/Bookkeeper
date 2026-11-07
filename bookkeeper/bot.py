@@ -262,6 +262,30 @@ async def paginar_busca_ou_filtro(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = _user_id(update)
+    partes = [parte.strip() for parte in " ".join(context.args).split(";")]
+    if len(partes) != 2 or not all(partes):
+        await update.effective_message.reply_text(
+            "Use assim: /status Título do livro; Status\n"
+            "Status disponíveis: Pendente, Lendo, Lido ou Desconhecido."
+        )
+        return
+    titulo, novo_status = partes
+    novo_status = novo_status.capitalize()
+    if novo_status not in STATUS_VALIDOS:
+        await update.effective_message.reply_text(
+            "Status inválido. Use Pendente, Lendo, Lido ou Desconhecido."
+        )
+        return
+    if atualizar_status(user_id, titulo, novo_status) == 0:
+        await update.effective_message.reply_text(
+            f"Não encontrei o livro '{titulo}' na sua biblioteca."
+        )
+        return
+    await update.effective_message.reply_text(
+        f"Status atualizado 📚\n{titulo}\nNovo status: {novo_status}"
+    )
+
 
 async def estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contagens = contar_livros(_user_id(update))
