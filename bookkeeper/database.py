@@ -64,6 +64,11 @@ def criar_tabela():
                 colecao TEXT,
                 status TEXT,
                 asin TEXT,
+                content_identifier TEXT,
+                product_image TEXT,
+                acquired_date TEXT,
+                origin_type TEXT,
+                is_purchased INTEGER,
                 FOREIGN KEY (telegram_user_id)
                     REFERENCES usuarios(telegram_user_id)
             )
@@ -78,6 +83,18 @@ def criar_tabela():
             conexao.execute(
                 "ALTER TABLE livros ADD COLUMN telegram_user_id INTEGER"
             )
+
+        # Entrega 3: migração não destrutiva dos metadados do Kindle.
+        metadados_colunas = {
+            "content_identifier": "TEXT",
+            "product_image": "TEXT",
+            "acquired_date": "TEXT",
+            "origin_type": "TEXT",
+            "is_purchased": "INTEGER",
+        }
+        for nome, tipo in metadados_colunas.items():
+            if nome not in colunas:
+                conexao.execute(f"ALTER TABLE livros ADD COLUMN {nome} {tipo}")
 
         # Remove o índice global legado para permitir o mesmo ASIN
         # em bibliotecas de usuários diferentes.
@@ -439,17 +456,78 @@ def _existe_candidato_sem_asin(
     return row is not None
 
 
-def importar_livros_kindle(telegram_user_id: int, books: list) -> dict:
-    """Importa livros do export Kindle para o usuário.
+def _campo_vazio(valor) -> bool:
+    """Considera NULL e strings em branco como campos ausentes."""
+    return valor is None or (isinstance(valor, str) and not valor.strip())
 
-    - Com ASIN: não duplica; não altera status/coleção/manuais existentes.
-    - Sem ASIN: só evita insert quando título e autor confiável já existem
-      com match exato normalizado; caso contrário, insere (evita falso positivo).
-    - Status ausente no export vira Desconhecido, não Pendente.
-    """
+
+def _metadados_de_livro_exportado(livro: dict) -> dict:
+    """Extrai os metadados opcionais normalizados pelo exportador Kindle."""
+    def texto(*chaves):
+        for chave in chaves:
+            valor = livro.get(chave)
+            if valor is not None and str(valor).strip():
+                return str(valor).strip()
+        return None
+
+    purchased = livro.get("isPurchased")
+    if purchased is None:
+        purchased = livro.get("is_purchased")
+    return {
+        "content_identifier": texto("contentIdentifier", "content_identifier"),
+        "product_image": texto("productImage", "product_image"),
+        "acquired_date": texto("acquiredDate", "acquired_date"),
+        "origin_type": texto("originType", "origin_type"),
+        "is_purchased": (1 if purchased else 0) if isinstance(purchased, bool) else None,
+    }
+
+
+def _enriquecer_metadados_vazios(
+    conexao, telegram_user_id: int, asin: str, meta: dict
+) -> bool:
+    """Preenche apenas metadados vazios do livro identificado por ASIN."""
+    row = conexao.execute(
+        """
+        SELECT id, content_identifier, product_image, acquired_date,
+               origin_type, is_purchased
+        FROM livros
+        WHERE telegram_user_id = ? AND asin = ?
+        LIMIT 1
+        """,
+        (telegram_user_id, asin),
+    ).fetchone()
+    if row is None:
+        return False
+
+    alteracoes = []
+    valores = []
+    for coluna in (
+        "content_identifier", "product_image", "acquired_date",
+        "origin_type", "is_purchased",
+    ):
+        novo = meta.get(coluna)
+        if novo is None or not _campo_vazio(row[coluna]):
+            continue
+        alteracoes.append(f"{coluna} = ?")
+        valores.append(novo)
+
+    if not alteracoes:
+        return False
+    valores.extend((row["id"], telegram_user_id))
+    conexao.execute(
+        f"UPDATE livros SET {', '.join(alteracoes)} WHERE id = ? AND telegram_user_id = ?",
+        valores,
+    )
+    return True
+
+
+def importar_livros_kindle(telegram_user_id: int, books: list) -> dict:
+    """Importa livros preservando edições manuais e enriquecendo metadados vazios."""
     garantir_usuario(telegram_user_id)
     adicionados = 0
     ignorados = 0
+    enriquecidos = 0
+
     with conectar() as conexao:
         for livro in books or []:
             if not isinstance(livro, dict):
@@ -465,13 +543,15 @@ def importar_livros_kindle(telegram_user_id: int, books: list) -> dict:
             if not isinstance(paginas, int) or paginas < 0:
                 paginas = None
             status_livro, colecao = _status_de_livro_exportado(livro)
+            meta = _metadados_de_livro_exportado(livro)
 
-            # Já existe por ASIN: preservar registro manual, não sobrescrever.
             if asin and _existe_livro_por_asin(conexao, telegram_user_id, asin):
-                ignorados += 1
+                if _enriquecer_metadados_vazios(conexao, telegram_user_id, asin, meta):
+                    enriquecidos += 1
+                else:
+                    ignorados += 1
                 continue
 
-            # Sem ASIN: dedupe conservadora (não é prova absoluta de identidade).
             if not asin and _existe_candidato_sem_asin(
                 conexao, telegram_user_id, titulo, autor
             ):
@@ -481,18 +561,18 @@ def importar_livros_kindle(telegram_user_id: int, books: list) -> dict:
             try:
                 cursor = conexao.execute(
                     """
-                    INSERT INTO livros
-                        (telegram_user_id, titulo, autor, paginas, colecao, status, asin)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO livros (
+                        telegram_user_id, titulo, autor, paginas, colecao, status,
+                        asin, content_identifier, product_image, acquired_date,
+                        origin_type, is_purchased
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        telegram_user_id,
-                        titulo,
-                        autor,
-                        paginas,
-                        colecao,
-                        status_livro,
-                        asin,
+                        telegram_user_id, titulo, autor, paginas, colecao,
+                        status_livro, asin, meta["content_identifier"],
+                        meta["product_image"], meta["acquired_date"],
+                        meta["origin_type"], meta["is_purchased"],
                     ),
                 )
                 if cursor.rowcount > 0:
@@ -500,15 +580,15 @@ def importar_livros_kindle(telegram_user_id: int, books: list) -> dict:
                 else:
                     ignorados += 1
             except sqlite3.IntegrityError:
-                # Corrida com índice único de ASIN: preservar existente.
                 ignorados += 1
+
     return {
         "telegram_user_id": telegram_user_id,
         "adicionados": adicionados,
         "ignorados": ignorados,
+        "enriquecidos": enriquecidos,
         "total_recebidos": len(books or []),
     }
-
 
 def importar_kindlogger(telegram_user_id: int | None = None):
     """Importação legada a partir de kindlogger-export.json (arquivo local)."""
