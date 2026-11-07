@@ -10,6 +10,7 @@ import json
 import secrets
 import sqlite3
 import string
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -350,11 +351,42 @@ def contar_livros(telegram_user_id: int):
         ).fetchall()
 
 
-def filtrar_livros(telegram_user_id: int, filtro):
+def filtrar_livros(
+    telegram_user_id: int,
+    filtro=None,
+    *,
+    status: str | None = None,
+    colecao: str | None = None,
+):
+    """Filtra a biblioteca do usuário por status e/ou coleção.
+
+    Compatibilidade: uma string única mantém o comportamento antigo
+    (status OU coleção iguais ao termo). Argumentos nomeados combinam com AND.
+    """
     with conectar() as conexao:
+        if status is not None or colecao is not None:
+            clausulas = ["telegram_user_id = ?"]
+            params: list = [telegram_user_id]
+            if status is not None and str(status).strip():
+                clausulas.append("LOWER(TRIM(status)) = LOWER(TRIM(?))")
+                params.append(str(status).strip())
+            if colecao is not None and str(colecao).strip():
+                clausulas.append("LOWER(TRIM(colecao)) = LOWER(TRIM(?))")
+                params.append(str(colecao).strip())
+            sql = f"""
+                SELECT id, titulo, autor, paginas, colecao, status
+                FROM livros
+                WHERE {" AND ".join(clausulas)}
+                ORDER BY titulo COLLATE NOCASE
+            """
+            return conexao.execute(sql, params).fetchall()
+
+        termo = (filtro or "").strip()
+        if not termo:
+            return []
         return conexao.execute(
             """
-            SELECT titulo, autor, paginas, colecao, status
+            SELECT id, titulo, autor, paginas, colecao, status
             FROM livros
             WHERE telegram_user_id = ?
               AND (
@@ -363,7 +395,92 @@ def filtrar_livros(telegram_user_id: int, filtro):
               )
             ORDER BY titulo COLLATE NOCASE
             """,
-            (telegram_user_id, filtro, filtro),
+            (telegram_user_id, termo, termo),
+        ).fetchall()
+
+
+def _normalizar_texto_busca(texto: str | None) -> str:
+    """Normaliza maiúsculas e acentos para busca parcial."""
+    if not texto:
+        return ""
+    decomposto = unicodedata.normalize("NFD", str(texto))
+    sem_marcas = "".join(
+        ch for ch in decomposto if unicodedata.category(ch) != "Mn"
+    )
+    return sem_marcas.casefold().strip()
+
+
+def buscar_livros(telegram_user_id: int, termo: str):
+    """Busca por título ou autor, parcialmente e sem diferenciar acentos."""
+    termo_norm = _normalizar_texto_busca(termo)
+    if not termo_norm:
+        return []
+    with conectar() as conexao:
+        rows = conexao.execute(
+            """
+            SELECT id, titulo, autor, paginas, colecao, status
+            FROM livros
+            WHERE telegram_user_id = ?
+            ORDER BY titulo COLLATE NOCASE
+            """,
+            (telegram_user_id,),
+        ).fetchall()
+    resultados = []
+    for row in rows:
+        titulo_n = _normalizar_texto_busca(row["titulo"])
+        autor_n = _normalizar_texto_busca(row["autor"])
+        if termo_norm in titulo_n or termo_norm in autor_n:
+            resultados.append(row)
+    return resultados
+
+
+def obter_livro(
+    telegram_user_id: int,
+    *,
+    livro_id: int | None = None,
+    titulo: str | None = None,
+):
+    """Obtém um livro da biblioteca do usuário, incluindo metadados."""
+    with conectar() as conexao:
+        if livro_id is not None:
+            return conexao.execute(
+                """
+                SELECT id, titulo, autor, paginas, colecao, status, asin,
+                       content_identifier, product_image, acquired_date,
+                       origin_type, is_purchased
+                FROM livros
+                WHERE telegram_user_id = ? AND id = ?
+                """,
+                (telegram_user_id, int(livro_id)),
+            ).fetchone()
+        if titulo is not None and str(titulo).strip():
+            return conexao.execute(
+                """
+                SELECT id, titulo, autor, paginas, colecao, status, asin,
+                       content_identifier, product_image, acquired_date,
+                       origin_type, is_purchased
+                FROM livros
+                WHERE telegram_user_id = ?
+                  AND LOWER(TRIM(titulo)) = LOWER(TRIM(?))
+                ORDER BY id
+                LIMIT 1
+                """,
+                (telegram_user_id, str(titulo).strip()),
+            ).fetchone()
+        return None
+
+
+def listar_livros_com_id(telegram_user_id: int):
+    """Lista livros com ID interno para busca, detalhe e paginação."""
+    with conectar() as conexao:
+        return conexao.execute(
+            """
+            SELECT id, titulo, autor, paginas, colecao, status
+            FROM livros
+            WHERE telegram_user_id = ?
+            ORDER BY titulo COLLATE NOCASE
+            """,
+            (telegram_user_id,),
         ).fetchall()
 
 
