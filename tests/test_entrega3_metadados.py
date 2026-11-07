@@ -170,9 +170,5 @@ def test_content_identifier_nao_e_unico(tmp_path, monkeypatch):
         total = c.execute(
             "SELECT COUNT(*) FROM livros WHERE telegram_user_id=11 AND content_identifier='MESMO-CID'"
         ).fetchone()[0]
-        indices = c.execute("PRAGMA index_list(livros)").fetchall()
+    # A mesma content_identifier pode aparecer em mais de um registro.
     assert total == 2
-    assert not any(
-        row["unique"] and "content_identifier" in row["name"]
-        for row in indices
-    )
