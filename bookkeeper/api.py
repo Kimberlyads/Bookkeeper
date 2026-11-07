@@ -125,6 +125,7 @@ class BookkeeperAPIHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "adicionados": resultado["adicionados"],
                 "ignorados": resultado["ignorados"],
+                "enriquecidos": resultado.get("enriquecidos", 0),
                 "total_recebidos": resultado["total_recebidos"],
             },
         )
