@@ -1,0 +1,10 @@
+Ordem no console (remote debug):
+
+1) Colar book-normalize.js
+2) Colar collector.js
+
+Ou hospedar ambos em HTTPS e:
+
+javascript:(function(){function L(u,n){return new Promise(function(r,j){var s=document.createElement('script');s.src=u;s.onload=r;s.onerror=j;document.documentElement.appendChild(s);});}L('https://SEU_HOST/book-normalize.js').then(function(){return L('https://SEU_HOST/collector.js');});})();
+
+Nunca inclua o código de pareamento na URL do bookmarklet.
